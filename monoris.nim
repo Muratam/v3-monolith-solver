@@ -13,6 +13,7 @@ type Status = ref object
   board : Board
   hash : Hash
   deletedCount : int
+  score : int
 func jHash(a:uint8, x, y: int) : Hash =
   const hash1000 = (proc(): array[1000, Hash] =
     for i in 0..<1000:
@@ -25,9 +26,9 @@ func recalcHash(s:Status): Hash =
     for y in 0..<height:
       result = result xor jHash(s.board[x][y], x, y)
 func `$`(this:Status): string =
-  result = fmt"(hash: {this.hash}, delete: {this.deletedCount})"
+  result = fmt"(hash: {this.hash}, delete: {this.deletedCount}, score: {this.score})"
 # 消した数が多い方を優先
-func `<`(a,b : Status) : bool = a.deletedCount > b.deletedCount
+func `<`(a,b : Status) : bool = a.score > b.score
 proc solve(baseBoard: Board) =
   var pq = initHeapQueue[Status]()
   var used = initHashSet[Hash]()
@@ -35,10 +36,11 @@ proc solve(baseBoard: Board) =
     var s = new Status
     s.board = baseBoard
     s.deletedCount = 0
+    s.score = 0
     s.hash = s.recalcHash()
     pq.push(s)
     used.incl s.hash
-  var maxDeletedCount = 0
+  var maxDeletedCount = -1
   while pq.len > 0:
     let s = pq.pop()
     if s.deletedCount > maxDeletedCount:
@@ -76,9 +78,25 @@ proc solve(baseBoard: Board) =
         var newS = new Status
         newS.board = s.board
         newS.deletedCount = s.deletedCount + deletes.len
+        newS.score = newS.deletedCount
         newS.hash = newHash
-        for delete in deletes:
-          newS.board[delete.x][delete.y] = 0
+        # 周辺の値は+1する
+        for (sx, sy) in deletes:
+          for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
+            if nx < 0 or nx >= width: continue
+            if ny < 0 or ny >= height: continue
+            if newS.board[nx][ny] == 0 : continue
+            if newS.board[nx][ny] >= 100 : continue
+            newS.board[nx][ny] += 100u8 + 1u8
+        for (sx, sy) in deletes:
+          for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
+            if nx < 0 or nx >= width: continue
+            if ny < 0 or ny >= height: continue
+            if newS.board[nx][ny] < 100 : continue
+            newS.board[nx][ny] -= 100u8
+            if newS.board[nx][ny] == 5 : newS.board[nx][ny] = 1
+        for (sx, sy) in deletes:
+          newS.board[sx][sy] = 0
         pq.push(newS)
         used.incl newHash
 
