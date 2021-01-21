@@ -1,4 +1,5 @@
 import sequtils, heapqueue, hashes, random, strformat, sets, algorithm
+import nimPNG
 const width = 22
 const height = 11
 const maxN = 4
@@ -39,6 +40,7 @@ func printAll(this:Status): string =
     while status.preStatus != nil:
       statuses &= status
       status = status.preStatus
+    statuses &= status
     statuses.reverse()
   result = ""
   for i,status in statuses:
@@ -167,12 +169,53 @@ proc solve(baseBoard: Board, weight: int ) =
         pq.push(newS)
         used.incl newHash
 
+proc parseToBoard(pngPath:string) : Board =
+  let png = loadPNG24(pngPath)
+  const format = 3
+  let size = 75 # int(png.height / (height + 3))
+  var colorBoard : array[width, array[height, string]]
+  const xOffset = 2
+  const yOffset = 1
+  for vx in xOffset..<xOffset+width:
+    for vy in yOffset..<yOffset+height:
+      let bx = vx * size + size div 2
+      let by = vy * size + size div 2
+      let rgb = png.data[format*(bx+by*png.width)..<format*(bx+by*png.width+1)]
+      let x = vx - xOffset
+      let y = vy - yOffset
+      colorBoard[x][y] = rgb
+  block:
+    var boardEncoded = ""
+    const rate = 10
+    for y in 0..<height * rate:
+      for x in 0..<width * rate:
+        let rgb = colorBoard[x div rate][y div rate]
+        boardEncoded &= rgb
+    var ok = savePNG24("monorisout.png",boardEncoded,width*rate,height*rate)
+    for y in 0..<height:
+      for x in 0..<width:
+        let rgb = colorBoard[x][y]
+        let ru = rgb[0].uint8
+        let gu = rgb[1].uint8
+        let bu = rgb[2].uint8
+        let u = ru.int + gu.int + bu.int
+        let r = ru.int / u
+        let g = gu.int / u
+        let b = bu.int / u
+        if b < 0.27 : result[x][y] = 3 # Y
+        elif r > 0.37 : result[x][y] = 2 # R
+        elif r < 0.27 : result[x][y] = 4 # B
+        else: result[x][y] = 1
+        echo fmt"{r:.2} {g:.2} {b:.2} :: {result[x][y]}"
 
 block:
   var baseBoard: Board
-  randomize()
-  for x in 0..<width:
-    for y in 0..<height:
-      baseBoard[x][y] = rand(1..maxN).uint8
+  if true:
+    baseBoard = parseToBoard("monoris.png")
+  if false:
+    randomize()
+    for x in 0..<width:
+      for y in 0..<height:
+        baseBoard[x][y] = rand(1..maxN).uint8
   for weight in 1..20:
     baseBoard.solve(rand(1..30))
