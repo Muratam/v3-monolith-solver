@@ -14,6 +14,7 @@ type Status = ref object
   hash : Hash
   deletedCount : int
   score : int
+  counts : array[5, int]
 func jHash(a:uint8, x, y: int) : Hash =
   const hash1000 = (proc(): array[1000, Hash] =
     for i in 0..<1000:
@@ -26,9 +27,9 @@ func recalcHash(s:Status): Hash =
     for y in 0..<height:
       result = result xor jHash(s.board[x][y], x, y)
 func `$`(this:Status): string =
-  result = fmt"(hash: {this.hash}, delete: {this.deletedCount}, score: {this.score})"
+  result = fmt"hash: {this.hash}, delete: {this.deletedCount}, score: {this.score}\n counts: {this.counts} \n"
 # 消した数が多い方を優先
-func `<`(a,b : Status) : bool = a.score > b.score
+func `<`(a,b : Status) : bool = a.score < b.score
 proc solve(baseBoard: Board) =
   var pq = initHeapQueue[Status]()
   var used = initHashSet[Hash]()
@@ -36,8 +37,12 @@ proc solve(baseBoard: Board) =
     var s = new Status
     s.board = baseBoard
     s.deletedCount = 0
-    s.score = 0
     s.hash = s.recalcHash()
+    for x in 0..<width:
+      for y in 0..<height:
+        s.counts[s.board[x][y]] += 1
+    s.counts[0] = 20000
+    s.score = s.counts.min.int
     pq.push(s)
     used.incl s.hash
   var maxDeletedCount = -1
@@ -78,8 +83,8 @@ proc solve(baseBoard: Board) =
         var newS = new Status
         newS.board = s.board
         newS.deletedCount = s.deletedCount + deletes.len
-        newS.score = newS.deletedCount
         newS.hash = newHash
+        newS.counts = s.counts
         # 周辺の値は+1する
         for (sx, sy) in deletes:
           for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
@@ -94,16 +99,25 @@ proc solve(baseBoard: Board) =
             if ny < 0 or ny >= height: continue
             if newS.board[nx][ny] < 100 : continue
             newS.board[nx][ny] -= 100u8
-            if newS.board[nx][ny] == 5 : newS.board[nx][ny] = 1
+            if newS.board[nx][ny] == 5 :
+              newS.board[nx][ny] = 1
+              newS.counts[4] -= 1
+            else:
+              newS.counts[newS.board[nx][ny] - 1] -= 1
+            newS.counts[newS.board[nx][ny]] += 1
         for (sx, sy) in deletes:
+          let b = newS.board[sx][sy]
+          newS.counts[b] -= 1
+          newS.counts[0] += 1
           newS.board[sx][sy] = 0
+        newS.score = newS.counts.min
         pq.push(newS)
         used.incl newHash
 
 
 block:
   var baseBoard: Board
-  # randomize()
+  randomize()
   for x in 0..<width:
     for y in 0..<height:
       baseBoard[x][y] = rand(1..4).uint8
