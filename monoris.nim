@@ -45,7 +45,15 @@ func printAll(this:Status): string =
   result = ""
   for i,status in statuses:
     result &= fmt "################ {i} ################\n"
-    result &= $status.board
+    const toZenkaku = ["　", "１", "２", "３", "４", "５", "６"]
+    for y in 0..<height:
+      for x in 0..<width:
+        if i > 0 and status.board[x][y] == 0 and
+            statuses[i-1].board[x][y] != 0:
+          result &= "＠"
+        else:
+          result &= fmt"{toZenkaku[status.board[x][y]]}"
+      result &= "\n"
     result &= "\n"
 # 消した数が多い方を優先
 func `<`(a,b : Status) : bool = a.score > b.score
