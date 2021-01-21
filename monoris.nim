@@ -11,7 +11,7 @@ proc `$`(this: Board) : string =
     for x in 0..<width:
       result &= fmt"{toZenkaku[this[x][y]]}"
     result &= "\n"
-
+type DelType = enum NonW = 0, W = 1, WM1 = 2, WP1 = 3, Else = 4
 type Status = ref object
   board : Board
   hash : Hash
@@ -20,6 +20,7 @@ type Status = ref object
   score : int
   counts : array[maxN+1, int]
   preStatus : Status
+  delType : DelType
 func jHash(a:uint8, x, y: int) : Hash =
   const hash1000 = (proc(): array[1000, Hash] =
     for i in 0..<1000:
@@ -78,8 +79,8 @@ proc calcScore(s: Status, weight:int) : int =
   for i in 1..maxN:
     minVal = minVal.min s.counts[i]
     maxVal = maxVal.max s.counts[i]
-  let sq = 0 #rand(0..1) + s.getMaxSquareSize().int
-  return - minVal * weight + maxVal + s.deletedCountForScore + sq
+  return - minVal * 2 + maxVal + s.deletedCountForScore
+  # return s.deletedCountForScore
 
 var maxDeletedCount = -1
 proc solve(baseBoard: Board, weight: int ) =
@@ -100,18 +101,22 @@ proc solve(baseBoard: Board, weight: int ) =
     s.preStatus = nil
     pq.push(s)
     used.incl s.hash
-  while pq.len > 0 and pq.len < 1000000:
+  var iterTime = 0
+  while pq.len > 0 and pq.len < 10000:
     let s = pq.pop()
+    iterTime += 1
+    if iterTime > 1500000: break
     if s.deletedCount > maxDeletedCount:
       maxDeletedCount = s.deletedCount
       echo s, " ", pq.len, " ",  maxDeletedCount
       echo s.board
-      echo weight
+      echo weight, " ", pq.len
       var f = open("result.txt", fmWrite)
       defer: f.close()
       f.write s.printAll()
     # 消せる場所を探して、ハッシュが存在していなければ登録
     var searched : array[width, array[height, bool]]
+    var newSs = newSeq[Status]()
     for x in 0..<width:
       for y in 0..<height:
         let b = s.board[x][y]
@@ -139,12 +144,18 @@ proc solve(baseBoard: Board, weight: int ) =
         search(x, y)
         if newHash in used : continue
         var newS = new Status
+        # 1. Wに隣接していないものがあるならまずそれを消す
+        # 2. Wが消せるなら消す
+        # 3. W-1が消せるなら消す
+        # 4. W+1が消せるなら消す
         newS.board = s.board
         newS.deletedCount = s.deletedCount
         newS.deletedCountForScore = s.deletedCountForScore
         newS.hash = newHash
         newS.counts = s.counts
         newS.preStatus = s
+        newS.delType = DelType.NonW
+        # type DelType = enum NonW, W, WM1, WP1, Else
         # 周辺の値は+1する
         for (sx, sy) in deletes:
           for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
@@ -152,6 +163,8 @@ proc solve(baseBoard: Board, weight: int ) =
             if ny < 0 or ny >= height: continue
             if newS.board[nx][ny] == 0 : continue
             if newS.board[nx][ny] >= 100 : continue
+            if newS.board[nx][ny] == weight.uint8 :
+              newS.delType = DelType.Else
             newS.board[nx][ny] += 100u8 + 1u8
         for (sx, sy) in deletes:
           for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
@@ -167,6 +180,13 @@ proc solve(baseBoard: Board, weight: int ) =
             newS.counts[newS.board[nx][ny]] += 1
         for (sx, sy) in deletes:
           let b = newS.board[sx][sy]
+          if newS.delType == DelType.Else:
+            if b == weight.uint8 :
+              newS.delType = DelType.W
+            elif b == (if weight - 1 == 0 : maxN else : weight - 1).uint8:
+              newS.delType = DelType.WM1
+            elif b == (if weight + 1 == maxN + 1 : 1 else : weight + 1).uint8:
+              newS.delType = DelType.WP1
           newS.counts[b] -= 1
           newS.counts[0] += 1
           newS.board[sx][sy] = 0
@@ -174,8 +194,13 @@ proc solve(baseBoard: Board, weight: int ) =
           # if sy < height - 1 and sx < width - 2 :
           newS.deletedCountForScore += 1
         newS.score = newS.calcScore(weight)
-        pq.push(newS)
+        newSs &= newS
         used.incl newHash
+    if newSs.len == 0 : continue
+    newSs = newSs.sortedByIt(it.delType.int * -1)
+    for newS in newSs:
+      if newS.delType != newSs[0].delType: break
+      pq.push(newS)
 
 proc parseToBoard(pngPath:string) : Board =
   let png = loadPNG24(pngPath)
@@ -214,16 +239,16 @@ proc parseToBoard(pngPath:string) : Board =
         elif r > 0.37 : result[x][y] = 2 # R
         elif r < 0.27 : result[x][y] = 4 # B
         else: result[x][y] = 1
-        echo fmt"{r:.2} {g:.2} {b:.2} :: {result[x][y]}"
+        # echo fmt"{r:.2} {g:.2} {b:.2} :: {result[x][y]}"
 
 block:
   var baseBoard: Board
   if true:
     baseBoard = parseToBoard("monoris.png")
+  randomize()
   if false:
-    randomize()
     for x in 0..<width:
       for y in 0..<height:
         baseBoard[x][y] = rand(1..maxN).uint8
-  for weight in 1..20:
-    baseBoard.solve(rand(1..30))
+  for weight in 1..maxN:
+    baseBoard.solve(weight)
