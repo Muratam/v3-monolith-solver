@@ -1,20 +1,25 @@
 import sequtils, heapqueue, hashes, random, strformat, sets
 const width = 22
 const height = 11
+const maxN = 4
 # 盤面: 0,[1,2,3,4]. 消すと周り4方向も消える
 type Board = array[width, array[height, uint8]]
 proc `$`(this: Board) : string =
   for y in 0..<height:
     for x in 0..<width:
-      result &= fmt"{this[x][y]}"
+      if this[x][y] == 0:
+        result &= fmt"."
+      else:
+        result &= fmt"{this[x][y]}"
     result &= "\n"
 
 type Status = ref object
   board : Board
   hash : Hash
   deletedCount : int
+  deletedCountForScore : int
   score : int
-  counts : array[5, int]
+  counts : array[maxN+1, int]
 func jHash(a:uint8, x, y: int) : Hash =
   const hash1000 = (proc(): array[1000, Hash] =
     for i in 0..<1000:
@@ -27,31 +32,58 @@ func recalcHash(s:Status): Hash =
     for y in 0..<height:
       result = result xor jHash(s.board[x][y], x, y)
 func `$`(this:Status): string =
-  result = fmt"hash: {this.hash}, delete: {this.deletedCount}, score: {this.score}\n counts: {this.counts} \n"
+  result = fmt"hash: {this.hash}, left: {width * height - this.deletedCount}, score: {this.score}\n counts: {this.counts} \n"
 # 消した数が多い方を優先
-func `<`(a,b : Status) : bool = a.score < b.score
-proc solve(baseBoard: Board) =
+func `<`(a,b : Status) : bool = a.score > b.score
+func getMaxSquareSize(s:Status) : uint8 =
+  var memo: array[width, array[height, uint8]]
+  memo[0][0] = if s.board[0][0] != 0 : 0 else: 1
+  for x in 1..<width:
+    memo[x][0] = if s.board[x][0] != 0 : 0u8 else: 1u8
+  for y in 1..<height:
+    memo[0][y] = if s.board[0][y] != 0 : 0u8 else: 1u8
+  result = 1
+  for x in 1..<width:
+    for y in 1..<height:
+      if s.board[x][y] != 0 :
+        memo[x][y] = 0
+        continue
+      memo[x][y] = 1u8 + min(memo[x-1][y-1], min(memo[x-1][y], memo[x][y-1]))
+      result = result.max(memo[x][y])
+proc calcScore(s: Status, weight:int) : int =
+  var minVal = 10000
+  var maxVal = 0
+  for i in 1..maxN:
+    minVal = minVal.min s.counts[i]
+    maxVal = maxVal.max s.counts[i]
+  let sq = 0 #rand(0..1) + s.getMaxSquareSize().int
+  return - minVal * weight + maxVal + s.deletedCountForScore + sq
+
+var maxDeletedCount = -1
+proc solve(baseBoard: Board, weight: int ) =
+  echo "weight:", weight
   var pq = initHeapQueue[Status]()
   var used = initHashSet[Hash]()
   block:
     var s = new Status
     s.board = baseBoard
     s.deletedCount = 0
+    s.deletedCountForScore = 0
     s.hash = s.recalcHash()
     for x in 0..<width:
       for y in 0..<height:
         s.counts[s.board[x][y]] += 1
     s.counts[0] = 20000
-    s.score = s.counts.min.int
+    s.score = s.calcScore(weight)
     pq.push(s)
     used.incl s.hash
-  var maxDeletedCount = -1
-  while pq.len > 0:
+  while pq.len > 0 and pq.len < 1000000:
     let s = pq.pop()
     if s.deletedCount > maxDeletedCount:
       maxDeletedCount = s.deletedCount
       echo s, " ", pq.len, " ",  maxDeletedCount
       echo s.board
+      echo weight
     # 消せる場所を探して、ハッシュが存在していなければ登録
     var searched : array[width, array[height, bool]]
     for x in 0..<width:
@@ -82,7 +114,8 @@ proc solve(baseBoard: Board) =
         if newHash in used : continue
         var newS = new Status
         newS.board = s.board
-        newS.deletedCount = s.deletedCount + deletes.len
+        newS.deletedCount = s.deletedCount
+        newS.deletedCountForScore = s.deletedCountForScore
         newS.hash = newHash
         newS.counts = s.counts
         # 周辺の値は+1する
@@ -99,9 +132,9 @@ proc solve(baseBoard: Board) =
             if ny < 0 or ny >= height: continue
             if newS.board[nx][ny] < 100 : continue
             newS.board[nx][ny] -= 100u8
-            if newS.board[nx][ny] == 5 :
+            if newS.board[nx][ny] == maxN + 1 :
               newS.board[nx][ny] = 1
-              newS.counts[4] -= 1
+              newS.counts[maxN] -= 1
             else:
               newS.counts[newS.board[nx][ny] - 1] -= 1
             newS.counts[newS.board[nx][ny]] += 1
@@ -110,7 +143,10 @@ proc solve(baseBoard: Board) =
           newS.counts[b] -= 1
           newS.counts[0] += 1
           newS.board[sx][sy] = 0
-        newS.score = newS.counts.min
+          newS.deletedCount += 1
+          # if sy < height - 1 and sx < width - 2 :
+          newS.deletedCountForScore += 1
+        newS.score = newS.calcScore(weight)
         pq.push(newS)
         used.incl newHash
 
@@ -120,5 +156,6 @@ block:
   randomize()
   for x in 0..<width:
     for y in 0..<height:
-      baseBoard[x][y] = rand(1..4).uint8
-  baseBoard.solve()
+      baseBoard[x][y] = rand(1..maxN).uint8
+  for weight in 1..20:
+    baseBoard.solve(rand(1..30))
