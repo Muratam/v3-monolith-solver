@@ -1,16 +1,14 @@
-import sequtils, heapqueue, hashes, random, strformat, sets
+import sequtils, heapqueue, hashes, random, strformat, sets, algorithm
 const width = 22
 const height = 11
 const maxN = 4
 # 盤面: 0,[1,2,3,4]. 消すと周り4方向も消える
 type Board = array[width, array[height, uint8]]
 proc `$`(this: Board) : string =
+  const toZenkaku = ["　", "１", "２", "３", "４", "５", "６"]
   for y in 0..<height:
     for x in 0..<width:
-      if this[x][y] == 0:
-        result &= fmt"."
-      else:
-        result &= fmt"{this[x][y]}"
+      result &= fmt"{toZenkaku[this[x][y]]}"
     result &= "\n"
 
 type Status = ref object
@@ -20,6 +18,7 @@ type Status = ref object
   deletedCountForScore : int
   score : int
   counts : array[maxN+1, int]
+  preStatus : Status
 func jHash(a:uint8, x, y: int) : Hash =
   const hash1000 = (proc(): array[1000, Hash] =
     for i in 0..<1000:
@@ -33,6 +32,19 @@ func recalcHash(s:Status): Hash =
       result = result xor jHash(s.board[x][y], x, y)
 func `$`(this:Status): string =
   result = fmt"hash: {this.hash}, left: {width * height - this.deletedCount}, score: {this.score}\n counts: {this.counts} \n"
+func printAll(this:Status): string =
+  var statuses = newSeq[Status]()
+  block:
+    var status = this
+    while status.preStatus != nil:
+      statuses &= status
+      status = status.preStatus
+    statuses.reverse()
+  result = ""
+  for i,status in statuses:
+    result &= fmt "################ {i} ################\n"
+    result &= $status.board
+    result &= "\n"
 # 消した数が多い方を優先
 func `<`(a,b : Status) : bool = a.score > b.score
 func getMaxSquareSize(s:Status) : uint8 =
@@ -75,6 +87,7 @@ proc solve(baseBoard: Board, weight: int ) =
         s.counts[s.board[x][y]] += 1
     s.counts[0] = 20000
     s.score = s.calcScore(weight)
+    s.preStatus = nil
     pq.push(s)
     used.incl s.hash
   while pq.len > 0 and pq.len < 1000000:
@@ -84,6 +97,9 @@ proc solve(baseBoard: Board, weight: int ) =
       echo s, " ", pq.len, " ",  maxDeletedCount
       echo s.board
       echo weight
+      var f = open("result.txt", fmWrite)
+      defer: f.close()
+      f.write s.printAll()
     # 消せる場所を探して、ハッシュが存在していなければ登録
     var searched : array[width, array[height, bool]]
     for x in 0..<width:
@@ -118,6 +134,7 @@ proc solve(baseBoard: Board, weight: int ) =
         newS.deletedCountForScore = s.deletedCountForScore
         newS.hash = newHash
         newS.counts = s.counts
+        newS.preStatus = s
         # 周辺の値は+1する
         for (sx, sy) in deletes:
           for (nx, ny) in [(sx-1,sy), (sx+1,sy), (sx,sy-1), (sx,sy+1)]:
